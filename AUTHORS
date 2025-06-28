@@ -1,0 +1,5 @@
+This is 'x509-2-pgp', a tool to convert public and private keys (PEM) or
+X.509v3 certificates into PGP-usable data (e.g. GNU Privacy Guard - gpg).
+
+Ingo A. Kubbilun - mailto:ingo.kubbilun@gmail.com
+

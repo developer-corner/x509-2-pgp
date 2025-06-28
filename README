@@ -1,0 +1,171 @@
+1.) BUILD INSTRUCTIONS (LINUX)
+------------------------------
+
+OpenSSL 3+ is always required to build this stuff (checked by autoconf).
+
+./autogen.sh && ./configure [<switches>]
+make
+sudo make install
+  
+  If you want to use your own OpenSSL build, then add:
+  
+--with-ssl=<path-to-openssl-build>
+
+  If you want to add your own OpenSSL library to the rpath, further add:
+  
+--with-ssl-ldflags="-Wl,-rpath=<path-to-openssl-build-library-path>"
+
+  If you want to build against your own static OpenSSL libcrypto.a, add:
+  
+--with-ssl=<my path> --with-ssl-ldflags="-Wl,--whole-archive <fully-qualified-archive-name> -Wl,--no-whole-archive"
+
+  If you want to compile a debugging version with symbols, add:
+  
+--enable-debug
+
+  If you want to include the test suite, add:
+  
+--enable-tests
+  
+2.) BUILD INSTRUCTIONS (WINDOWS)
+--------------------------------
+
+  Just use the solution in the win32 subfolder. A prebuilt OpenSSL 3.5.0 for
+  Windows is included for convenience.
+
+3.) RUNNING THE TEST SUITE
+--------------------------
+
+  THERE IS NO TEST TARGET IN THE LINUX MAKEFILE!!!
+
+  Use 'man x509-2-gpg' on Linux for more information about this tool.
+
+  You have to configure your build with '--with-tests' on Linux. On Windows,
+  the test suite is included per default (you can change this by undefining
+  the macro _WITH_TESTS on Windows).
+
+  The test suite can be execute with or without a PKCS#11 library. You always
+  have to specify the OpenSSL and GNU Privacy Guard executables.
+
+  On Linux, a minimum test suite run looks like this (add --colored to get colored output):
+
+OPENSSL_EXE=/usr/bin/openssl GPG_EXE=/usr/bin/gpg x509-2-pgp testsuite
+
+  The pinentry popup is displayed (triggered by gpg) on a local, temporary GNU Privacy
+  Guard folder, nothing gets modified in your normal PGP key ring! Enter "123456" here.
+
+  It generates a new folder X509_2_PGP_TESTDIR in the current folder, which is always
+  emptied if it exists. After that, the test suite is executed omitting all PKCS#11-specific
+  tests. A log file 'test.log' is generated in the test folder, too.
+
+  If your gpg and/or openssl is in a non-standard path, please do not forget to also modify
+  your LD_LIBRARY_PATH before executing the test suite (or it might just fail).
+
+  On Windows, this is something like this (here: with colored output) - Open a cmd.exe and
+  execute:
+
+set GPG_EXE=c:\Program Files (x86)\GnuPG\bin\gpg.exe
+set OPENSSL_EXE=<fully qualified path>\openssl.exe
+x509-2-pgp.exe testsuite --colored
+
+  (On Windows, there is no LD_LIBRARY_PATH but ensure that your PATH variable 'finds' all
+   possibly required Dynamic Link Libraries .dll)
+  Also, the standard pinentry dialog appears during the tests. Please enter "123456".
+  
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+4.) Running the test suite including ALL PKCS#11 TESTS:
+-------------------------------------------------------
+
+**************************************************************************************************** 
+*  EXTREME CAUTION: The PKCS#11 key labels p11_rsa2048, p11_rsa3072, p11_rsa4096, p11_ecnist256,   *
+*  ================ p11_ecnist384, p11_ecnist521, p11_ecbpool256, p11_ecbpool384, p11_ecbpool512,  *
+*                   p11_ed25519_1, p11_ed25519_2, and p11_ed448 ARE ALWAYS PURGED IN THE           *
+*                   PKCS#11 MODULE BEFORE AND AFTER THE TEST SUITE RUNS!!!                         *
+****************************************************************************************************                   
+                   
+  If you should have one or more of these key labels (possibly as production keys) in your PKCS#11 module,
+  DO NOT EXECUTE THE TESTSUITE!!!
+
+  Please always set up / use a pure TEST PKCS#11 MODULE if you want to execute all tests of the test
+  suite - NEVER USE ANY PRODUCTION PKCS#11 MODULE FOR THIS PURPOSE!!! Always back up your PKCS#11 module
+  before proceeding. YOU HAVE BEEN WARNED!!!
+
+  The PKCS#11 test suite parts were tested using the Utimaco CryptoServer HSM simulator, which supports
+  all kinds of public key algorithms (RSA, ECDSA, EdDSA). If your PKCS#11 provider does not support all
+  of these algorithms, then the test suite automatically skips unsupported algorithms, e.g. EdDSA.
+
+  In the case of an Utimaco CryptoServer simulator, you have to setup the simulator as well as the
+  PKCS#11 slot #0 (initialize the slot, set the SO and USER PINs). Also, a configuration file
+  "cs_pkcs11_R3.cfg" is required and has to be published in your OS environment.
+  
+  A full PKCS#11 run (Utimaco CryptoServer HSM simulator) may be performed like this:
+  
+CS_PKCS11_R3_CFG=<path-to>/cs_pkcs11_R3.cfg OPENSSL_EXE=/usr/bin/openssl GPG_EXE=/usr/bin/gpg \
+PKCS11_PIN=<your P11 user PIN> x509-2-pgp testsuite --colored \
+--p11slot 0 --p11lib <path-to>/libcs_pkcs11_R3.so
+
+  The latest HSM simulator supports ED25519 and ED448 via PKCS#11, too!
+  
+5.) Additional sample tool runs:
+--------------------------------
+
+5.1) Key pair generation (in software, using OpenSSL, and in hardware, using PKCS#11):
+--------------------------------------------------------------------------------------
+
+x509-2-pgp genkeypair rsa2048 -o my_rsa2048
+
+  -> generates an RSA/2048bit key pair in software, dumping the resulting key to my_rsa2048.prv.pem
+     and my_rsa2048.pub.pem using the default public exponent 65537 (0x10001).
+  -> asks for an encryption password (for the private key part). Can be left empty to store it plain
+     (alternativly, define the environment variable SECRET="" if you do not want to deal with a PEM 
+     password).
+  -> the key creation timestamp, which is always required by PGP, is added to the resulting private
+     key PEM file my_rsa2048.prv.pem as an additional verb.
+     
+x509-2-pgp genkeypair rsa4096 -o my_rsa4096 --rsaexp 0xC0000001
+
+  -> generates an RSA/4096bit key pair (see 2048bit above) using the public exponent 0xC0000001
+  
+x509-2-pgp genkeypair ecnist256 -o my_ecnist256 --p11slot 0 --p11lib <path-to>/<p11-library>
+  
+  -> asks for the PKCS#11 user PIN on the console (unless you declare the environment variable
+     PKCS11_PIN) and generates a prime256v1 Elliptic Curve in the PKCS#11 module. The private
+     key is marked as non-exportable and sensitive (never leaves the PKCS#11 module). The
+     PKCS#11 key label is set to 'my_ecnist256', the PKCS#11 key ID is set to the key creation
+     timestamp. An OpenSSL-style my_ecnist256.pub.pem is dumped to disk, which can be used later
+     on using the openssl command line tool to verify signatures not using the PKCS#11 module
+     (because the verifcation is a pure public operation).
+     
+x509-2-pgp pgpimport -o my_pgp_import.bin --prv my_rsa4096.prv.pem --user test \
+--email test@test.org --digest sha512 --do-verify --enc-aescfb
+
+  -> creates a binary PGP packet structure on disk 'my_pgp_import.bin'. Uses the key pair stored
+     in my_rsa4096.prv.pem (and its creation timestamp from there). Encrypts the private key
+     parts using AES-CFB (256bit). The positive certification (self-)signature is created using
+     the SHA2-512 digest.
+     A loopback verification of the signature is performed right away. The USER ID PGP packet is
+     created using the username 'test' and the E-mail address 'test@test.org'.
+     
+gpg --import --batch my_pgp_import.bin
+
+  -> imports the RSA/4096bit key pair into your PGP keyring.
+  
+gpg --list-keys
+
+  -> lists the new public key
+  
+gpg --list-secret-keys
+
+  -> also lists the private key
+  
+gpg -b -o <output detached sig file> -u <test@test.org> <input file>
+
+  -> generates a PGP (GPG) detached signature
+  
+gpg --verify <output detached sig file from above> <input file>
+
+  -> verifies the PGP detached signature  
+  
+  FOR FAR MORE EXAMPLES, PLEASE CONSULT THE TEST SUITE SOURCE CODE src/tests.c !!!
+

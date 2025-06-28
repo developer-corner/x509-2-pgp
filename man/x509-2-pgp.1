@@ -1,0 +1,378 @@
+.TH <x509-2-pgp> 1 "2025-06-01" "" "Linux User's Manual"
+
+.SH NAME
+x509-tp-pgp \- convert X.509v3 certificates, public/private keys (ASN.1) to PGP
+
+.SH SYNOPSIS
+.B x509-2-pgp
+.I <applet>
+.I <switches>...
+.RI [ OPTIONS  ]...
+.br
+
+.SH DESCRIPTION
+\fBx509-2-pgp\fP (also available for MS Windows) establishes a bridge from the ASN.1/X.509v3
+world to the PGP binary format and is currently intended for RSA/ECDSA/EdDSA signature key
+conversion to PGP only.
+.pp
+
+A full PKCS#11 (cryptographic token interface) integration is available. There is no need to setup
+OpenSSL ENGINEs or crypto providers, respectively. For PGP (e.g. GnuPG), no smartcard daemon
+(P11) is required.
+.pp
+
+PGP v4/v5 as well as old/new packet formats according to RFC 9580 are supported. v6 is not supported, though.
+.PP
+
+This tool was mainly written for codesigning purposes, i.e. use your existing X.509 assets and
+optional PKCS#11 module with GnuPG (tested with v2.4.7) and the GRUB2 bootloader (tested with 2.12) 
+to secure the entire boot chain (right behind an UEFI secure custom boot setup).
+
+.SH APPLETS
+
+.IP \fBgenkeypair\ <type>\ -o\ <output>\ [--rsaexp\ <exponent>]\fP
+Generate key pair either in software (OpenSSL) or using PKCS#11 crypto token. <type> may be one of
+rsa2048, rsa3072, rsa4096, ecnist256, ecnist384, ecnist521, ecbpool256, ecbpool384, ecbpool512,
+ed25519 or ed448.
+
+OpenSSL key pairs and public keys are always stored as PEM files. The file extension '.prv.pem'
+is appended to key pairs, '.pub.pem' is append to public keys. Private keys (key pairs) are equipped
+with an additional verb (in the PEM file) storing the key creation timestamp. PKCS#11 keys are stored
+by PKCS#11 label. The PKCS#11 key ID is used to store the key creation timestamp (eight bytes).
+
+Please note: PGP key fingerprints rely on the key creation timestamp, i.e. you may compute the fingerprint
+if and only if you have recorded the key creation timestamp anywhere.
+
+The private key encryption password is queried on the console unless specified in the environment
+(see below). Leaving the password empty stores the key pair as plaintext. PKCS#11 key pairs are
+generated in the module, the private key never leaves the PKCS#11 module. The public part is also
+formatted as a public key PEM file and dumped to disk (e.g. can be used to verify a digital signature
+using the OpenSSL command line tool without using the PKCS#11 module).
+
+.IP \fBpgpimport\ -o\ <output>\ <switches...>\fP
+The switches are explained below. This applet generates a binary PGP packet structure containing
+either a public key or a full key pair (PGP calls this secret key), i.e. this emits either a PGP PUBLIC
+KEY or PGP SECRET KEY packet.
+
+A user ID packet and a positive certification signature is added to the binary structure, too. The input
+key (pair) may come from OpenSSL (pure software key) or from a PKCS#11 module. In the latter case, only
+a PGP PUBLIC KEY packet is generated. A PGP SECRET KEY packet may be generated either as plain text
+(NOT RECOMMENDED) or AES-CFB-256bit enciphered (key derived from password).
+
+All PGP packets use the v4 format except for ED448 keys (v5). You may use the 'gpg' command line tool to
+import the binary PGP packet structure into your PGP key ring.
+
+The necessary user name and user E-mail address (required by PGP) can be specified on the command line or, in the
+case that <input> is an X.509v3 certificate, both items are derived from the X.509v3 certificate: The user name
+is the X.501 commonName (cn) attribute of the subject distinguished name, the E-mail address comes either also
+from the subject DN (X.501 attribute emailaddress) or from the SubjectAlternativeNames X.509v3 extensions as a so
+called RFC 822 name.
+
+Nevertheless, one or both of user name and user E-mail address can be overridden by command line switches. 
+
+.IP \fBpgpsign\ <switches...>\ <input>\ [input]...\fP
+Create one or more detached, binary PGP signature(s). output file names are created by appending
+\'.sig\' to the input file name(s). Either a private key / key pair file or a PKCS#11 key label has
+to be specified. The signature scheme is automatically derived from the key. The message digest
+defaults to SHA-256 but can be changed by the switch '--digest' (see below).
+
+Certain message digests are not allowed for certain public key types. The tool emits an error if such an
+invalid combination was chosen by the user (e.g. ED448 is compatible with SHA-512 only).
+
+.IP \fBpatchx509\ -i\ <input>\ -o\ <output>\ <switches...>\fP
+THIS IS A NON-PGP APPLET: Uses an input X.509v3 certificate as a template and patches the
+SubjectPublicKeyInfo ASN.1 structure of a new public key into it creating an output X.509v3 certificate.
+
+An issuer X.509v3 may be specified, too (if the output shall not be self-signed). Both, SubjectKeyIdentifier and AuthorityKeyIdentifier are
+modified as well. The certificate's digital signature is created using the issuer private key.
+
+The idea behind this applet is to create an X.509v3 certificate having its private key in a PKCS#11 module
+without the need to setup possibly complicated OpenSSL ENGINEs or crypto providers, respectively.
+
+Use the options below to tweak the X.509v3 even more (e.g. exchange of serial number), etc.
+
+.IP \fBsign\ <switches...>\ <input>\ [input]...\fP
+Creates one or more detached raw binary signature most likely for a private key in a PKCS#11 module. The file
+extension '.sig' is appended to all input files.
+
+Raw signature bytes are stored by this applet. For RSA, the number of bytes equals the RSA key size bits divided by eight.
+For ECDSA and EdDSA, this is just the pair (R,S) stored as raw binary data (i.e. R||S). The signature size matches
+twice the curve bit size divided by eight. Only ED448 is a special case here: The signature occupies
+57 instead of 56 (448/8) bytes per R, S, thus the full signature size is 114 bytes.
+
+.IP \fBverify\ <input>\ <sigfile>\ <public-key-or-x509>\ [switches...]\fP
+
+Verify a detached raw binary signature using OpenSSL (always in software). The public key
+may be a PEM file or an X.509v3 certificate. No switch '-i' has to be used for the input file here because
+the three required parameters input, sigfile, and public-key-or-x509 have to be specified in a row.
+
+The switch may be e.g. '--digest' to specify a message digest algorithm if the default (sha256) does not apply.
+
+.IP \fBdeketepkcs11key\ <switches...>\fP
+Deletes PKCS#11 key selected by label in a hardware module (smartcard, HSM, other). Use '--p11label' to specify key.
+
+Because this might be a dangerous operation, the tool asks for a confirmation on the console. Only if you specify the
+special switch '--iknowwhatiamdoing', then it deletes the PKCS#11 key pair right away.
+
+This applet NEVER removes a PKCS#11 key (pair) by label if more than one key matching this label is enumerated by the
+PKCS#11 module, though.
+
+.SH OPTIONS\ /\ SWITCHES
+.IP \fB\-q\ |\ \ -\-quiet\fP
+Be quiet. Required console inputs are NOT inhibited (password or PINs, respectively).
+
+.IP \fB\-v\ |\ \ -\-version\fP
+Display version and build date, then exit.
+
+.IP \fB\-h\ |\ \-\-help\ [\ applet\ ]\fP
+Display help, then exit. You may specify an applet name after this option to get detailed
+help for this applet.
+
+.IP \fB\-\-p11label\ <label>\fP
+Explicitly specify PKCS#11 key label if not specified otherwise. If a private key file name or PKCS#11 label
+parameter is required by an applet, then this label overrides this option (if also specified).
+
+.IP \fB\-\-p11lib\ <library>\fP
+Use this PKCS#11 library (is a shared object on Linux or a dynamic link library on Windows, respectively).
+
+.IP \fB\-\-p11slot\ <slot\ number>\fP
+Select PKCS#11 slot, which defaults to zero (0).
+
+.IP \fB\-\-pkonly\fP
+Only for pgpimport: If a full key pair is specified, then use the public key part only.
+
+.IP \fB\-\-prv\ <file>\fP
+Specify a private key PEM file.
+
+.IP \fB\-\-pub\ <file>\fP
+Specify a public key PEM file or X.509v3 certificate (uses SubjectPublicKeyInfo in this case).
+
+.IP \fB\-\-prvcert\ <file>\fP
+Specify a private key PEM file (for certification, i.e. the issuer).
+
+.IP \fB\-\-pubcert\ <file>\fP
+Specify a public key PEM file or X.509v3 certificate (uses SubjectPublicKeyInfo in this case) for certification (issuer).
+
+.IP \fB\-\-serial\ <serial\ number>\fP
+Only for patchx509: Patch this serial number into the new X.509v3 certificate.
+
+.IP \fB\-\-user\ <user\ name>\fP
+Only for PGP applets: Specify a user name (if omitted and X.509v3 specified as input,
+use the commonName attribute from the subject DN).
+
+.IP \fB\-\-email\ <E-mail\ address>\fP
+Only for PGP applets: Specify an E-mail address (if omitted and X.509v3 specified as input,
+use either the emailaddress attribute from the subject DN or the RFC 822 name from a
+SubjectAltName X.509v3 extension).
+
+.IP \fB\-\-emailcert\ <E-mail\ address>\fP
+Only for PGP applets: Specify an E-mail address of the issuer (for certification). Please note that
+GnuPG always complains about non-self-signatures, i.e. you have to use the gpg switch --allow-non-selfsigned-uid.
+
+.IP \fB\-\-expiry\ <days>\fP
+Specify PGP key expiry. Use zero (0) to disable key expiry. If an X.509v3 certificate is specified
+as input, notBefore and notAfter timestamps are also used for PGP imports. If you just want to
+use notBefore but
+.B not
+notAfter, use this option with DAYS=0.
+
+.IP \fB\-\-digest\ <digest>\fP
+Specify message digest (one of sha224, sha256, sha384, sha512). Defaults to sha256. No SHA-3
+currently supported for PGP (already defined in RFC 9580), though.
+
+.IP \fB\-\-rsaexp\ <prime\ number>\fP
+Specify RSA public exponent when generating key pairs. Defaults to 65.537. The tool DOES NOT check
+if the number is indeed prime. You may use the prefix '0x' to specify hexadecimal numbers, e.g.
+0x10001, 0xC0000001, etc.
+
+.IP \fB\-\-keyts\ <timestamp>\fP
+Specify key creation timestamp if not otherwise specified. The tool complains if this information
+is required by the currently executed applet (and not specified). The syntax is either
+YYYY-MM-DD-HH-MM-SS or a decimal/hexadecimal number (number of seconds since 1970-01-01).
+Please note that PGP is limited to 32bit timestamps. No date beyond 2106-02-07-06-28-15 can be
+handled.
+
+.IP \fB\-\-iknowwhatiamdoing\fP
+Do NOT display confimation before deleting a PKCS#11 key (pair) in the PKCS#11 module.
+
+.IP \fB\-\-pgp-new-packet-format\fP
+Use new PGP packet format. Defaults to old packet format.
+
+.IP \fB\-\-use-pss\fP
+Only for raw non-PGP signatures: Create RSA-PSS instead of RSA PKCS#1 v1.5 signatures. All RSA-PSS
+parameters are implicitly specifed (dependent on selected message digest), i.e. e.g. if SHA-256 is used,
+then MGF-1 with SHA-256, 32 bytes salt length, trailerField BC are used. For SHA-384/-512, same message
+digest is used for MGF-1, salt length equals hash size (48 or 64 bytes).
+
+.IP \fB\-\-do-verify\fP
+Always perform a 'loopback' verification right after having created a digital signature (verification always with
+OpenSSL in software).
+
+.IP \fB\-\-use-edph\fP
+DEPRECATED, DO NOT USE: This option selects the 'pre-hashed' versions of the EdDSA algorithm suite (see RFC 8032).
+Initially, it was unclear how PGP uses the Edwards curve algorithms because the entire to-be-signed payload is not available
+in the GnuPG Edwards Curves source code. PGP/GPG uses a kind of 'non-standard' way of creating EdDSA signatures, i.e.
+pure EdDSA is used, which signs a pre-calculated message digest.
+
+.IP \fB\-\-new-edwards\fP
+EXPERIMENTAL, DO NOT USE: PGP/GPG defines a 'legacy' Edwards scheme, which is also used by this tool. ED25519 and ED448
+digital signatures are stored as either v4 (ED25519) or v5 (ED448) packets consisting of the pair (R,S) as two distinct MPIs (multi-precision integers).
+The new Edwards schemes store raw digital signatures (2 x 32 bytes for ED25519 or 2 x 57 bytes for ED448) instead. No current GnuPG
+implementation was 'found', which could process these kinds of digitial signature, though.
+
+.IP \fB\-\-enc-aescfb\fP
+Use AES/256bit in CFB128 mode for PGP secret key packet encryption. Input passwords always derive AES keys in iterated
+and salted mode with SHA2-256 message digest function, the encoded count byte is always 0xDF meaning 16.252.928 bytes.
+
+.IP \fB\-\-enc-aesgcm\fP
+EXPERIMENTAL, DO NOT USE: Use AES/256bit in Galois Counter Mode (GCM, an AEAD scheme) for PGP secret key packet encryption.
+It is currently not known if the implementation is correct (was implemented according to textual specification in RFC 9580)
+because no current GnuPG source code is available that actually implements it (June 2025).
+
+.IP \fB\-\-colored\fP
+Enable colored console output, monochrome otherwise (the default).
+
+.SH NOTES
+The primary intent of this tool is to provide some kind of bridge between the ITU-T X.680, X.690, X.509 series of specifications (Abstract Syntax Notation ONE)
+and the OpenPGP/GnuPG standard. The current implementation of the tool supports signature keys (RSA, ECDSA, and EdDSA) only. This is because the main
+use-case is 'use your existing X.509v3 assets (certificates, key pairs, possibly PKCS#11 key pairs) also with the PGP standard'.
+
+.pp
+For RSA key pairs, you may customize the public exponent 'e', which defaults to 65.537. Currently, only 2.048, 3.072, and 4.096 bit keys are supported. Please
+note that in some countries, RSA/2048 is already deprecated.
+
+.pp
+For ECDSA key pairs, all PGP-supported curves are also supported (NIST and Brainpool curves up to 521/512 bits). Both EdDSA curves ED25519 and ED448 are supported as well.
+
+.pp
+None of the Post Quantum Crypt (PQC) algorithms such as ML-DSA have made it to either the PGP or the X.509v3 standards. These algorithms are currently being added to these standards but did not reach them until now (June 2025).
+
+.pp
+You may convert single certificates (e.g. codesigning end entities) as self-signed keys to PGP or transfer your entire CA hierarchy. All private key operations may be carried out in a PKCS#11 module (smartcard, HSM, USB token, whatsoever). No additional software stack has to be set up for this purpose, the tool is self-contained in terms of PKCS#11 usage.
+
+.pp
+The author's primary usage was the conversion of X.509v3 assets to the 'PGP world' enabling the gpg and gpgv command line tools for digital signature verification (codesigning). Please note that the GRUB2 bootloader (version 2.12) comes with a GnuPG integration, which also supports ECDSA although Edwards Curves did not make it into the GRUB2 bootloader until now.
+
+.pp
+Key creation timestamps are stored in PKCS#11 modules as the PKCS#11 attribute 'key ID', the key itself is always selected via the PKCS#11 label. If the tool
+required a private key, then you may specify plain or encrypted PEM files for this. Alternatively, you may specify a PKCS#11 label. The PKCS#11 mode of operation
+is enabled if you specify a PKCS#11 library to be loaded.
+
+.pp
+PKCS#11 PINs and other secrets may also be specified in the environment (see below). Please also note that certain PKCS#11 modules require some kind of
+extended authentication involving a smartcard logon - also dual-control is often an option (several users have to authenticate in a row). Please consult your
+smartcard or HSM documentation on how to setup this, respectively.
+
+.SH ENVIRONMENT
+
+.IP \fBPKCS11_LIBRARY \fP
+Specify the shared object or dynamic link library of the PKCS#11 software library. If this environment variable is set or
+the '--p11lib' parameter is specified, then the tool runs in PKCS#11 mode (otherwise in OpenSSL software mode).
+
+.IP \fBPKCS11_SLOT \fP
+Specify the PKCS#11 slot, which defaults to zero (0). Alternatively, use the option '--p11slot <slot>'.
+
+.IP \fBPKCS11_PIN \fP
+Specify the PKCS#11 PIN for PKCS#11 user authentication. See also 'SECRET'.
+
+.IP \fBSECRET \fP
+.br
+Specify a secret, which is either used as the PKCS#11 PIN or as the PEM password for deciphering / enciphering
+encrypted PEM key files. SECRET overrides PKCS11_PIN if both are set.
+
+.IP \fBPGP_SECRET \fP
+.br
+Specify a secret, which is the password for deciphering / enciphering
+encrypted PGP private/secret keys. If not defined and PGP encryption selected, then the password is queried on the console.
+
+.SH EXAMPLES
+To generate an RSA 4096bit key pair in software (OpenSSL), execute:
+
+x509-2-pgp genkeypair rsa4096 -o my_4096_rsa
+
+The output is 'my_4096_rsa.prv.pem' and 'my_4096_rsa_pub.pem'. If
+you do not enter a password, the key pair is stored in plaintext. Alternatively, you may use the environment variable SECRET
+to define the key encryption password. If your OS does not allow to specify an empty environment variable, use two double quotes to
+specify an empty (i.e. non-existing secret).
+
+To generate an ED448 key pair in a PKCS#11 module (supporting this asymmetric algorithm), execute:
+
+x509-2-pgp genkeypair ed448 -o my_ed448 --p11lib <lib> --p11label my_ed448
+
+The PKCS#11 PIN is queried on the console, the key pair gets generated in the PKCS#11 module and the
+public key file 'my_ed448.pub.pem' is dumped. The PKCS#11 key label is also 'my_ed448'. The PKCS#11 key ID stores
+the eight bytes (64 bits) time_t number of seconds since the epoch (please recall that PGP's time representation is limited to 32 bits).
+
+Create a PGP secret key packet structure for the RSA 4096bit key pair:
+
+x509-2-pgp pgpimport -o my_4096_rsa.pgpimport --prv my_4096_rsa.prv.pem --user test1 --email test1@company.org --do-verify
+
+Outputs the binary PGP packet structure as 'my_4096_rsa.pgpimport'. Uses user 'test1' and E-mail address 'test1@company.org'. Performs verification of positive
+PGP certification signature right away (in software, using OpenSSL). Message digest is the default 'sha256'. You may
+use '--pkonly' to only import the public key.
+
+Import public key and secret (private) key into local temporary GPG keyrings:
+
+rm -rf testgpg ; mkdir testgpg ; chmod 700 testgpg ; GNUPGHOME=testgpg gpg --batch --import my_4096_rsa.pgpimport
+
+List just imported RSA 4096bit public key:
+
+GNUPGHOME=testgpg gpg --list-keys
+
+List just imported RSA 4096bit private / secret key:
+
+GNUPGHOME=testgpg gpg --list-secret-keys
+
+Create PGP public key packet for ED448 key from the PKCS#11 module (positive certification signature is created in
+the PKCS#11 module):
+
+x509-2-pgp pgpimport --pub my_ed448.pub.pem -o my_ed448.pgpimport --user test2 --email test2@company.org --do-verify --p11lib <lib> --p11label my_ed448 --digest sha512
+
+Do NOT forget to switch the message digest from the default, sha256, to sha512 because ED448 requires you to use a 64-byte message digest
+(SHA2-512 is the only choice here).
+
+Import this ED448 public key using 'gpg':
+
+GNUPGHOME=testgpg gpg --batch --import my_ed448.pgpimport
+
+Create a detached PGP signature using the ED448 key in the PKCS#11 module:
+
+x509-2-pgp pgpsign --p11label my_ed448 --user test2 --email test2@company.org --do-verify --p11lib <lib> --digest sha512 file1.test file2.test
+
+Creates two files 'file1.test.sig' and 'file2.test.sig' containing the PGP signatures of 'file1.test' or 'file2.test', respectively.
+
+Use 'gpg' to verify these two signatures:
+
+GNUPGHOME=testgpg gpg --verify file1.test.sig file1.test
+
+GNUPGHOME=testgpg gpg --verify file2.test.sig file2.test
+
+Delete PKCS#11 key pair from PKCS#11 module:
+
+x509-2-pgp deletepkcs11key --p11lib <lib> --p11label my_ed448
+
+Add the switch '--iknowwhatiamdoing' to inhibit the confirmation question.
+
+More example usages can be found in the top level README.
+
+.SH BUGS
+
+Because there is a 'strange' behavior in the current GNU Privacy Guard implementation (up to 2.4.7+) observed with ED25519 and ED448 keys,
+this tool implements a hack to circumvent many (not all) of the gpg problems.
+
+This bug is related to the canonicalization of the two components R and S of an EdDSA signature: The MPI (multi-precision integer) used by
+gpg internally requires you to canonicalize (i.e. cut) leading zero bits from big integers. If you have to cut more than one full byte, then
+gpg is unable to verify the (still correct) digital signature.
+
+The implemented hack cuts up to seven leading zero bits but not more, i.e. no full byte(s) are cut from digital signature components.
+
+During the extensive testing of this tool, at least one ED448 key pair (generated by OpenSSL) was found that could be imported into the PGP key ring but
+could not be used for private key operations afterwards. It is still unknown if this is also related to the MPI problem stated above. 
+
+.SH "SEE ALSO"
+gpg(1), gpgv(1), openssl(1)
+
+.SH AUTHORS
+x509-2-pgp was written by Ingo A. Kubbilun
+.UR mailto:ingo.kubbilun@gmail.com
+.UE
