@@ -36,7 +36,7 @@ The command-line tool is split into applets:
 ## Build instructions
 Please **DO READ** the accompanying **README** file first. For the impatient, on Linux, execute:
 
-    ./autgen.sh && ./configure && make && sudo make install
+    ./autogen.sh && ./configure && make && sudo make install
 
 A man page is available, too. Add '--enable-debug' to build a non-optimized version with full debug information. You may also use
 a non-standard OpenSSL installation (see './configure --help').
