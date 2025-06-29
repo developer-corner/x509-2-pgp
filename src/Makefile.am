@@ -1,4 +1,5 @@
-AM_CFLAGS = -fPIC -pthread -D__USE_GNU -pedantic -Wall -Wextra -Werror -fmessage-length=0 -I$(top_srcdir)/../inc @AM_CFLAGS@
+# AM_CFLAGS = -fPIC -pthread -D__USE_GNU -pedantic -Wall -Wextra -Werror -fmessage-length=0 -I$(top_srcdir)/../inc @AM_CFLAGS@
+AM_CFLAGS = -fPIC -pthread -D__USE_GNU -pedantic -Wall -Wextra -Werror -fmessage-length=0 -I../inc @AM_CFLAGS@
 AM_LDFLAGS = -pthread -L/usr/lib64 @AM_LDFLAGS@
 LIBS += -lpthread -ldl
 
